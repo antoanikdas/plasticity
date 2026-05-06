@@ -5,16 +5,13 @@
 template <int dim>
 void crystalPlasticity<dim>::updateAfterIncrement()
 {
-  this->updateAfterIncrementBase();
 	local_F_r=0.0;
 	local_F_s=0.0;
 	local_F_e = 0.0;
 	unsigned int CheckBufferRegion,dimBuffer;
-	double lowerBuffer,upperBuffer,workDensity_Element1_Tr;
+	double lowerBuffer,upperBuffer;
 	Point<dim> pnt2;
 	Vector<double> userDefinedAverageOutput,local_userDefinedAverageOutput;
-  FullMatrix<double> P_LastIter(dim,dim);
-  FullMatrix<double> F_lastIter(dim,dim),deltaF(dim,dim);
 
 	if (this->userInputs.flagUserDefinedAverageOutput){
 		userDefinedAverageOutput.reinit(this->userInputs.numberUserDefinedAverageOutput);
@@ -27,7 +24,7 @@ void crystalPlasticity<dim>::updateAfterIncrement()
 	FEValues<dim> fe_values(this->FE, quadrature, update_quadrature_points | update_gradients | update_JxW_values);
 	const unsigned int num_quad_points = quadrature.size();
 	const unsigned int   dofs_per_cell = this->FE.dofs_per_cell;
-	std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
+	std::vector<unsigned int> local_dof_indices(dofs_per_cell);
 	if (this->userInputs.flagTaylorModel){
 		if(initCalled == false){
 			if(this->userInputs.enableAdvancedTwinModel){
@@ -73,7 +70,6 @@ void crystalPlasticity<dim>::updateAfterIncrement()
 					Ulocal[i] = this->solutionWithGhosts[local_dof_indices[i]];
 				}
 			}
-      P_LastIter=0;workDensity_Element1_Tr=0;
 			for (unsigned int q = 0; q < num_quad_points; ++q) {
 				//Get deformation gradient
 				F = 0.0;
@@ -91,16 +87,6 @@ void crystalPlasticity<dim>::updateAfterIncrement()
 						F[i][i] += 1;
 					}
 				}
-
-        F_lastIter = 0.0;deltaF=0.0;
-        F_lastIter=F_lastIter_Global[cellID][q];
-
-        for (unsigned int i = 0; i < dim; ++i) {
-          for (unsigned int j = 0; j < dim; ++j) {
-            deltaF[i][j]=F[i][j]-F_lastIter[i][j];
-          }
-        }
-
 				//Update strain, stress, and tangent for current time step/quadrature point
 				calculatePlasticity(cellID, q, 0);
 
@@ -110,9 +96,9 @@ void crystalPlasticity<dim>::updateAfterIncrement()
 				temp2.reinit(dim); temp2 = 0.0;
 				temp3.reinit(dim, dim); temp3 = 0.0;
 				temp4.reinit(dim, dim); temp4 = 0.0;
-        C_tau = 0.0;
+				C_tau = 0.0;
 				temp = F;
-        F.Tmmult(C_tau, temp);
+				F.Tmmult(C_tau, temp);
 				F.mTmult(b_tau, temp);
 				//E_tau = CE_tau;
 				temp = IdentityMatrix(dim);
@@ -127,16 +113,6 @@ void crystalPlasticity<dim>::updateAfterIncrement()
 
 				CauchyStress[cellID][q]=T;
 
-///////Calculation of work density from the first P and F
-        P_LastIter=FirstPiolaStress[cellID][q];
-        for (unsigned int i = 0; i < dim; ++i) {
-          for (unsigned int j = 0; j < dim; ++j) {
-//Trapezoidal integration rule
-            workDensity_Element1_Tr+=((P[i][j]+P_LastIter[i][j])/2)*deltaF[i][j]*fe_values.JxW(q);
-          }
-        }
-
-        FirstPiolaStress[cellID][q]=P;
 
 				if (this->userInputs.enableAdvRateDepModel){
 					for(unsigned int i=0; i<dim ; i++){
@@ -240,21 +216,21 @@ void crystalPlasticity<dim>::updateAfterIncrement()
 						//Also, the first equation should be copy and paste depending on the number of variables you want to output,
 						//and the integer in paranthesis should be updated accordingly.
 						//The maximum number of lines (output variables) are defined in the input file as "set Number of Output Userdefined Average Variable".
-						local_userDefinedAverageOutput(0)=local_userDefinedAverageOutput(0)+0;
+						local_userDefinedAverageOutput(0)=local_userDefinedAverageOutput(0)+stateVar_iter[cellID][q][62] * fe_values.JxW(q);
+						local_userDefinedAverageOutput(1)=local_userDefinedAverageOutput(1)+stateVar_iter[cellID][q][63] * fe_values.JxW(q);
+						local_userDefinedAverageOutput(2)=local_userDefinedAverageOutput(2)+stateVar_iter[cellID][q][64] * fe_values.JxW(q);
+						local_userDefinedAverageOutput(3)=local_userDefinedAverageOutput(3)+stateVar_iter[cellID][q][65] * fe_values.JxW(q);
+						local_userDefinedAverageOutput(4)=local_userDefinedAverageOutput(4)+stateVar_iter[cellID][q][66] * fe_values.JxW(q);
+						local_userDefinedAverageOutput(5)=local_userDefinedAverageOutput(5)+stateVar_iter[cellID][q][67] * fe_values.JxW(q);
 					}
 				}
 
-        F_lastIter_Global[cellID][q]=F;
 			}
 			if (this->userInputs.writeOutput){
-//Calculation of work density for the cell
-        workDensityTotal1_Tr[cellID]+=workDensity_Element1_Tr;
-        
-//////////////////////////////////////////////////////////////////////////
 				this->postprocessValuesAtCellCenters(cellID,0)=cellOrientationMap[cellID];
 ////////User Defined Variables for visualization outputs for cell_centers (outputoutputCellCenters_Var1 to outputoutputCellCenters_Var24)////////
-        this->postprocessValuesAtCellCenters(cellID,1)= workDensityTotal1_Tr[cellID];   //This outputs cell average work density
-        this->postprocessValuesAtCellCenters(cellID,2)=0;
+				this->postprocessValuesAtCellCenters(cellID,1)=0;
+				this->postprocessValuesAtCellCenters(cellID,2)=0;
 				this->postprocessValuesAtCellCenters(cellID,3)=0;
 				this->postprocessValuesAtCellCenters(cellID,4)=0;
 				this->postprocessValuesAtCellCenters(cellID,5)=0;
@@ -353,223 +329,18 @@ void crystalPlasticity<dim>::updateAfterIncrement()
 					//loop over quadrature points
 					for (unsigned int q=0; q<num_quad_points; ++q){
 						std::vector<double> temp;
+
+						////////////GrainID of quadrature point////////////////
 						temp.push_back(cellOrientationMap[cellID]);
 
-						if (!this->userInputs.enableAdvancedTwinModel){
-							temp.push_back(phase[cellID][q]);
-						}
 
-						temp.push_back(fe_values.JxW(q));
-
-            temp.push_back(twin_ouput[cellID][q]);
-
+            ////////////X,Y,Z (Position of the quadrature point)////////////////
 						temp.push_back(fe_values.get_quadrature_points()[q][0]);
-						temp.push_back(fe_values.get_quadrature_points()[q][1]);
-						temp.push_back(fe_values.get_quadrature_points()[q][2]);
-
-            temp.push_back(rotnew_conv[cellID][q][0]);
-						temp.push_back(rotnew_conv[cellID][q][1]);
-						temp.push_back(rotnew_conv[cellID][q][2]);
-
-						temp.push_back(Fe_conv[cellID][q][0][0]);
-						temp.push_back(Fe_conv[cellID][q][1][1]);
-						temp.push_back(Fe_conv[cellID][q][2][2]);
-						temp.push_back(Fe_conv[cellID][q][0][1]);
-						temp.push_back(Fe_conv[cellID][q][0][2]);
-						temp.push_back(Fe_conv[cellID][q][1][0]);
-						temp.push_back(Fe_conv[cellID][q][1][2]);
-						temp.push_back(Fe_conv[cellID][q][2][0]);
-						temp.push_back(Fe_conv[cellID][q][2][1]);
-
-						temp.push_back(Fp_conv[cellID][q][0][0]);
-						temp.push_back(Fp_conv[cellID][q][1][1]);
-						temp.push_back(Fp_conv[cellID][q][2][2]);
-						temp.push_back(Fp_conv[cellID][q][0][1]);
-						temp.push_back(Fp_conv[cellID][q][0][2]);
-						temp.push_back(Fp_conv[cellID][q][1][0]);
-						temp.push_back(Fp_conv[cellID][q][1][2]);
-						temp.push_back(Fp_conv[cellID][q][2][0]);
-						temp.push_back(Fp_conv[cellID][q][2][1]);
-
-						temp.push_back(CauchyStress[cellID][q][0][0]);
-						temp.push_back(CauchyStress[cellID][q][1][1]);
-						temp.push_back(CauchyStress[cellID][q][2][2]);
-						temp.push_back(CauchyStress[cellID][q][0][1]);
-						temp.push_back(CauchyStress[cellID][q][0][2]);
-						temp.push_back(CauchyStress[cellID][q][1][0]);
-						temp.push_back(CauchyStress[cellID][q][1][2]);
-						temp.push_back(CauchyStress[cellID][q][2][0]);
-						temp.push_back(CauchyStress[cellID][q][2][1]);
-
-						if (this->userInputs.enableAdvRateDepModel){
-							temp.push_back(TinterStress[cellID][q][0][0]);
-							temp.push_back(TinterStress[cellID][q][1][1]);
-							temp.push_back(TinterStress[cellID][q][2][2]);
-							temp.push_back(TinterStress[cellID][q][0][1]);
-							temp.push_back(TinterStress[cellID][q][0][2]);
-							temp.push_back(TinterStress[cellID][q][1][0]);
-							temp.push_back(TinterStress[cellID][q][1][1]);
-							temp.push_back(TinterStress[cellID][q][2][0]);
-							temp.push_back(TinterStress[cellID][q][2][1]);
-
-							temp.push_back(TinterStress_diff[cellID][q][0][0]);
-							temp.push_back(TinterStress_diff[cellID][q][1][1]);
-							temp.push_back(TinterStress_diff[cellID][q][2][2]);
-							temp.push_back(TinterStress_diff[cellID][q][0][1]);
-							temp.push_back(TinterStress_diff[cellID][q][0][2]);
-							temp.push_back(TinterStress_diff[cellID][q][1][0]);
-							temp.push_back(TinterStress_diff[cellID][q][1][1]);
-							temp.push_back(TinterStress_diff[cellID][q][2][0]);
-							temp.push_back(TinterStress_diff[cellID][q][2][1]);
-						}
-
-						temp.push_back(slipfraction_conv[cellID][q][0]);
-						temp.push_back(slipfraction_conv[cellID][q][1]);
-						temp.push_back(slipfraction_conv[cellID][q][2]);
-						temp.push_back(slipfraction_conv[cellID][q][3]);
-						temp.push_back(slipfraction_conv[cellID][q][4]);
-						temp.push_back(slipfraction_conv[cellID][q][5]);
-						temp.push_back(slipfraction_conv[cellID][q][6]);
-						temp.push_back(slipfraction_conv[cellID][q][7]);
-						temp.push_back(slipfraction_conv[cellID][q][8]);
-						temp.push_back(slipfraction_conv[cellID][q][9]);
-						temp.push_back(slipfraction_conv[cellID][q][10]);
-						temp.push_back(slipfraction_conv[cellID][q][11]);
-						temp.push_back(slipfraction_conv[cellID][q][12]);
-						temp.push_back(slipfraction_conv[cellID][q][13]);
-						temp.push_back(slipfraction_conv[cellID][q][14]);
-						temp.push_back(slipfraction_conv[cellID][q][15]);
-						temp.push_back(slipfraction_conv[cellID][q][16]);
-						temp.push_back(slipfraction_conv[cellID][q][17]);
-						temp.push_back(slipfraction_conv[cellID][q][18]);
-						temp.push_back(slipfraction_conv[cellID][q][19]);
-						temp.push_back(slipfraction_conv[cellID][q][20]);
-						temp.push_back(slipfraction_conv[cellID][q][21]);
-						temp.push_back(slipfraction_conv[cellID][q][22]);
-						temp.push_back(slipfraction_conv[cellID][q][23]);
-						temp.push_back(slipfraction_conv[cellID][q][24]);
-						temp.push_back(slipfraction_conv[cellID][q][25]);
-						temp.push_back(slipfraction_conv[cellID][q][26]);
-						temp.push_back(slipfraction_conv[cellID][q][27]);
-						temp.push_back(slipfraction_conv[cellID][q][28]);
-						temp.push_back(slipfraction_conv[cellID][q][29]);
-						temp.push_back(slipfraction_conv[cellID][q][30]);
-						temp.push_back(slipfraction_conv[cellID][q][31]);
-						temp.push_back(slipfraction_conv[cellID][q][32]);
-						temp.push_back(slipfraction_conv[cellID][q][33]);
-						temp.push_back(slipfraction_conv[cellID][q][34]);
-						temp.push_back(slipfraction_conv[cellID][q][35]);
-						temp.push_back(slipfraction_conv[cellID][q][36]);
-						temp.push_back(slipfraction_conv[cellID][q][37]);
-						temp.push_back(slipfraction_conv[cellID][q][38]);
-						temp.push_back(slipfraction_conv[cellID][q][39]);
-						temp.push_back(slipfraction_conv[cellID][q][40]);
-						temp.push_back(slipfraction_conv[cellID][q][41]);
-						temp.push_back(slipfraction_conv[cellID][q][42]);
-						temp.push_back(slipfraction_conv[cellID][q][43]);
-						temp.push_back(slipfraction_conv[cellID][q][44]);
-						temp.push_back(slipfraction_conv[cellID][q][45]);
-						temp.push_back(slipfraction_conv[cellID][q][46]);
-						temp.push_back(slipfraction_conv[cellID][q][47]);
-						temp.push_back(slipfraction_conv[cellID][q][48]);
-						temp.push_back(slipfraction_conv[cellID][q][49]);
-						temp.push_back(slipfraction_conv[cellID][q][50]);
-						temp.push_back(slipfraction_conv[cellID][q][51]);
-						temp.push_back(slipfraction_conv[cellID][q][52]);
-						temp.push_back(slipfraction_conv[cellID][q][53]);
-						temp.push_back(slipfraction_conv[cellID][q][54]);
-						temp.push_back(slipfraction_conv[cellID][q][55]);
-						temp.push_back(slipfraction_conv[cellID][q][56]);
-						temp.push_back(slipfraction_conv[cellID][q][57]);
-						temp.push_back(slipfraction_conv[cellID][q][58]);
-						temp.push_back(slipfraction_conv[cellID][q][59]);
-						temp.push_back(slipfraction_conv[cellID][q][60]);
-						temp.push_back(slipfraction_conv[cellID][q][61]);
-						temp.push_back(slipfraction_conv[cellID][q][62]);
-						temp.push_back(slipfraction_conv[cellID][q][63]);
-						temp.push_back(slipfraction_conv[cellID][q][64]);
-						temp.push_back(slipfraction_conv[cellID][q][65]);
-						temp.push_back(slipfraction_conv[cellID][q][66]);
-						temp.push_back(slipfraction_conv[cellID][q][67]);
-						temp.push_back(slipfraction_conv[cellID][q][68]);
-						temp.push_back(slipfraction_conv[cellID][q][69]);
-						temp.push_back(slipfraction_conv[cellID][q][70]);
-						temp.push_back(slipfraction_conv[cellID][q][71]);
-						temp.push_back(slipfraction_conv[cellID][q][72]);
-						temp.push_back(slipfraction_conv[cellID][q][73]);
-						temp.push_back(slipfraction_conv[cellID][q][74]);
-						temp.push_back(slipfraction_conv[cellID][q][75]);
-						temp.push_back(slipfraction_conv[cellID][q][76]);
-						temp.push_back(slipfraction_conv[cellID][q][77]);
-						temp.push_back(slipfraction_conv[cellID][q][78]);
-						temp.push_back(slipfraction_conv[cellID][q][79]);
-						temp.push_back(slipfraction_conv[cellID][q][80]);
-						temp.push_back(slipfraction_conv[cellID][q][81]);
-						temp.push_back(slipfraction_conv[cellID][q][82]);
-						temp.push_back(slipfraction_conv[cellID][q][83]);
-
-
-						temp.push_back(twinfraction_conv[cellID][q][0]);
-						temp.push_back(twinfraction_conv[cellID][q][1]);
-						temp.push_back(twinfraction_conv[cellID][q][2]);
-						temp.push_back(twinfraction_conv[cellID][q][3]);
-						temp.push_back(twinfraction_conv[cellID][q][4]);
-						temp.push_back(twinfraction_conv[cellID][q][5]);
-
-						if (this->userInputs.enableAdvancedTwinModel){
-							temp.push_back(TwinOutputfraction_conv[cellID][q][0]);
-							temp.push_back(TwinOutputfraction_conv[cellID][q][1]);
-							temp.push_back(TwinOutputfraction_conv[cellID][q][2]);
-							temp.push_back(TwinOutputfraction_conv[cellID][q][3]);
-							temp.push_back(TwinOutputfraction_conv[cellID][q][4]);
-							temp.push_back(TwinOutputfraction_conv[cellID][q][5]);
-							temp.push_back(TwinOutputfraction_conv[cellID][q][6]);
-							temp.push_back(TwinOutputfraction_conv[cellID][q][7]);
-							temp.push_back(TwinOutputfraction_conv[cellID][q][8]);
-							temp.push_back(TwinOutputfraction_conv[cellID][q][9]);
-							temp.push_back(TwinOutputfraction_conv[cellID][q][10]);
-							temp.push_back(TwinOutputfraction_conv[cellID][q][11]);
-							temp.push_back(TwinOutputfraction_conv[cellID][q][12]);
-							temp.push_back(TwinOutputfraction_conv[cellID][q][13]);
-							temp.push_back(TwinOutputfraction_conv[cellID][q][14]);
-							temp.push_back(TwinOutputfraction_conv[cellID][q][15]);
-							temp.push_back(TwinOutputfraction_conv[cellID][q][16]);
-							temp.push_back(TwinOutputfraction_conv[cellID][q][17]);
-							temp.push_back(TwinOutputfraction_conv[cellID][q][18]);
-							temp.push_back(TwinOutputfraction_conv[cellID][q][19]);
-							temp.push_back(TwinOutputfraction_conv[cellID][q][20]);
-							temp.push_back(TwinOutputfraction_conv[cellID][q][21]);
-							temp.push_back(TwinOutputfraction_conv[cellID][q][22]);
-							temp.push_back(TwinOutputfraction_conv[cellID][q][23]);
-						}
+					  temp.push_back(fe_values.get_quadrature_points()[q][1]);
+					  temp.push_back(fe_values.get_quadrature_points()[q][2]);
 
 						if (this->userInputs.enableUserMaterialModel){
-							temp.push_back(stateVar_conv[cellID][q][0]);
-							temp.push_back(stateVar_conv[cellID][q][1]);
-							temp.push_back(stateVar_conv[cellID][q][2]);
-							temp.push_back(stateVar_conv[cellID][q][3]);
-							temp.push_back(stateVar_conv[cellID][q][4]);
-							temp.push_back(stateVar_conv[cellID][q][5]);
-							temp.push_back(stateVar_conv[cellID][q][6]);
-							temp.push_back(stateVar_conv[cellID][q][7]);
-							temp.push_back(stateVar_conv[cellID][q][8]);
-							temp.push_back(stateVar_conv[cellID][q][9]);
-							temp.push_back(stateVar_conv[cellID][q][10]);
-							temp.push_back(stateVar_conv[cellID][q][11]);
-							temp.push_back(stateVar_conv[cellID][q][12]);
-							temp.push_back(stateVar_conv[cellID][q][13]);
-							temp.push_back(stateVar_conv[cellID][q][14]);
-							temp.push_back(stateVar_conv[cellID][q][15]);
-							temp.push_back(stateVar_conv[cellID][q][16]);
-							temp.push_back(stateVar_conv[cellID][q][17]);
-							temp.push_back(stateVar_conv[cellID][q][18]);
-							temp.push_back(stateVar_conv[cellID][q][19]);
-							temp.push_back(stateVar_conv[cellID][q][20]);
-							temp.push_back(stateVar_conv[cellID][q][21]);
-							temp.push_back(stateVar_conv[cellID][q][22]);
-							temp.push_back(stateVar_conv[cellID][q][23]);
-							temp.push_back(stateVar_conv[cellID][q][24]);
-							temp.push_back(stateVar_conv[cellID][q][25]);
+							////////////Plastic slip shear (Gamma) for each slip system. In the case of FCC, 12 values ////////////////
 							temp.push_back(stateVar_conv[cellID][q][26]);
 							temp.push_back(stateVar_conv[cellID][q][27]);
 							temp.push_back(stateVar_conv[cellID][q][28]);
@@ -582,7 +353,7 @@ void crystalPlasticity<dim>::updateAfterIncrement()
 							temp.push_back(stateVar_conv[cellID][q][35]);
 							temp.push_back(stateVar_conv[cellID][q][36]);
 							temp.push_back(stateVar_conv[cellID][q][37]);
-							temp.push_back(stateVar_conv[cellID][q][38]);
+						////////////Normal stress for each slip system. In the case of FCC, 12 values ////////////////
 							temp.push_back(stateVar_conv[cellID][q][39]);
 							temp.push_back(stateVar_conv[cellID][q][40]);
 							temp.push_back(stateVar_conv[cellID][q][41]);
@@ -595,6 +366,31 @@ void crystalPlasticity<dim>::updateAfterIncrement()
 							temp.push_back(stateVar_conv[cellID][q][48]);
 							temp.push_back(stateVar_conv[cellID][q][49]);
 							temp.push_back(stateVar_conv[cellID][q][50]);
+							////////////Nine components of Plastic strain Tensor (Ep11, Ep12,Ep13,Ep21,Ep22,Ep23,Ep31,Ep32,Ep33) ////////////////
+							temp.push_back(stateVar_conv[cellID][q][52]);
+							temp.push_back(stateVar_conv[cellID][q][53]);
+							temp.push_back(stateVar_conv[cellID][q][54]);
+							temp.push_back(stateVar_conv[cellID][q][55]);
+							temp.push_back(stateVar_conv[cellID][q][56]);
+							temp.push_back(stateVar_conv[cellID][q][57]);
+							temp.push_back(stateVar_conv[cellID][q][58]);
+							temp.push_back(stateVar_conv[cellID][q][59]);
+							temp.push_back(stateVar_conv[cellID][q][60]);
+							////////////Effective Plastic Strain ////////////////
+							temp.push_back(stateVar_conv[cellID][q][61]);
+							///////////Elastic Energy//////////
+							temp.push_back(stateVar_conv[cellID][q][62]);
+							/////////Wp cum///////////////
+							temp.push_back(stateVar_conv[cellID][q][63]);
+							////////W total cum/////////////
+							temp.push_back(stateVar_conv[cellID][q][64]);
+							///////FIP p inc////////////
+							temp.push_back(stateVar_conv[cellID][q][65]);
+							///////FIP FS//////////////
+							temp.push_back(stateVar_conv[cellID][q][66]);
+							//////FIP FS T////////////
+							temp.push_back(stateVar_conv[cellID][q][67]);
+							
 						}
 
 						addToQuadratureOutput(temp);
@@ -741,8 +537,6 @@ void crystalPlasticity<dim>::updateAfterIncrement()
 		if(this->currentIncrement==0){
 			outputFile.open(dir.c_str());
 			outputFile << "Exx"<<'\t'<<"Eyy"<<'\t'<<"Ezz"<<'\t'<<"Eyz"<<'\t'<<"Exz"<<'\t'<<"Exy"<<'\t'<<"Txx"<<'\t'<<"Tyy"<<'\t'<<"Tzz"<<'\t'<<"Tyz"<<'\t'<<"Txz"<<'\t'<<"Txy"<<'\t'<<"TwinRealVF"<<'\t'<<"TwinMade"<<'\t'<<"SlipTotal";
-			if (this->userInputs.enableIndentationBCs)
-			outputFile << "\tInd_Load\tInd_U";
 			if (this->userInputs.flagUserDefinedAverageOutput){
 				for(unsigned int i=0;i<this->userInputs.numberUserDefinedAverageOutput;i++){
 					outputFile <<'\t'<<"userDefined"<<i;
@@ -753,14 +547,6 @@ void crystalPlasticity<dim>::updateAfterIncrement()
 		}
 		outputFile.open(dir.c_str(),std::fstream::app);
 		outputFile << global_strain[0][0]<<'\t'<<global_strain[1][1]<<'\t'<<global_strain[2][2]<<'\t'<<global_strain[1][2]<<'\t'<<global_strain[0][2]<<'\t'<<global_strain[0][1]<<'\t'<<global_stress[0][0]<<'\t'<<global_stress[1][1]<<'\t'<<global_stress[2][2]<<'\t'<<global_stress[1][2]<<'\t'<<global_stress[0][2]<<'\t'<<global_stress[0][1]<<'\t'<<F_r<<'\t'<<F_e<<'\t'<<F_s;
-		if (this->userInputs.enableIndentationBCs) {
-			double Ind_displacement;
-			double Ind_load;
-			Ind_displacement = this->currentIndentDisp;
-			Ind_load = this->indenterLoad;
-			std::cout<<"IndenterLoad = "<<Ind_load<<'\n';
-			outputFile << '\t' << Ind_load << '\t' << Ind_displacement ;
-		}
 		if (this->userInputs.flagUserDefinedAverageOutput){
 			for(unsigned int i=0;i<this->userInputs.numberUserDefinedAverageOutput;i++){
 				outputFile <<'\t'<<userDefinedAverageOutput(i);

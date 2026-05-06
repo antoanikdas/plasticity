@@ -84,3 +84,7 @@ stressstrain.txt
 
 .cproject
 .project
+
+problems/IN718/_*
+
+
